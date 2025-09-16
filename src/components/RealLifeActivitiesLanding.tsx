@@ -13,33 +13,35 @@ export default function RealLifeActivitiesLanding() {
   const [baseEndTime, setBaseEndTime] = useState<Date | null>(null);
   const [volumeDataLoaded, setVolumeDataLoaded] = useState(false);
 
-  // Calculate time remaining until next 00:00 EST with volume bonus
-  const calculateTimeToMidnightEST = (volumeBonus: number = 0): { endTime: Date; timeRemaining: number } => {
+  // Calculate time remaining from specific start date: 4:17 PM Tuesday, 16 September 2025 Eastern Time
+  const calculateTimeFromStartDate = (volumeBonus: number = 0): { endTime: Date; timeRemaining: number } => {
     const now = new Date();
 
-    // Create a date for the next midnight EST
-    const nextMidnightEST = new Date();
-    nextMidnightEST.setUTCHours(5, 0, 0, 0); // EST is UTC-5 (or UTC-4 during DST)
+    // Create the specific start date: 4:17 PM Tuesday, 16 September 2025 Eastern Time
+    // Note: September 16, 2025 is actually a Tuesday, so this is correct
+    const startDate = new Date('2025-09-16T16:17:00-04:00'); // 4:17 PM EDT (Eastern Daylight Time)
 
-    // If we're past today's midnight EST, move to tomorrow
-    if (now.getTime() > nextMidnightEST.getTime()) {
-      nextMidnightEST.setUTCDate(nextMidnightEST.getUTCDate() + 1);
-    }
+    // Calculate base countdown duration (24 hours from start date)
+    const baseDurationMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
-    // Add volume bonus time to the end time
-    const adjustedEndTime = new Date(nextMidnightEST.getTime() + volumeBonus);
-    const timeRemaining = adjustedEndTime.getTime() - now.getTime();
+    // Calculate end time: start date + 24 hours + volume bonus
+    const endTime = new Date(startDate.getTime() + baseDurationMs + volumeBonus);
 
-    console.log('Countdown calculation with volume bonus:', {
+    // Calculate time remaining
+    const timeRemaining = Math.max(0, endTime.getTime() - now.getTime());
+
+    console.log('Countdown calculation from specific start date:', {
       now: now.toISOString(),
-      nextMidnightEST: nextMidnightEST.toISOString(),
+      startDate: startDate.toISOString(),
+      baseDurationMs: baseDurationMs,
       volumeBonus: volumeBonus,
-      adjustedEndTime: adjustedEndTime.toISOString(),
+      endTime: endTime.toISOString(),
       timeRemaining: timeRemaining,
-      hours: Math.floor(timeRemaining / (1000 * 60 * 60))
+      hours: Math.floor(timeRemaining / (1000 * 60 * 60)),
+      isActive: timeRemaining > 0
     });
 
-    return { endTime: adjustedEndTime, timeRemaining };
+    return { endTime, timeRemaining };
   };
 
   // Handle initial volume load to set base countdown
@@ -47,7 +49,7 @@ export default function RealLifeActivitiesLanding() {
     console.log('Received initial volume base time:', baseTimeFromVolume);
 
     // Calculate countdown with volume bonus
-    const { endTime, timeRemaining: initialTime } = calculateTimeToMidnightEST(baseTimeFromVolume);
+    const { endTime, timeRemaining: initialTime } = calculateTimeFromStartDate(baseTimeFromVolume);
     setBaseEndTime(endTime);
     setTimeRemaining(initialTime);
     setVolumeDataLoaded(true);
@@ -66,7 +68,7 @@ export default function RealLifeActivitiesLanding() {
     const timeout = setTimeout(() => {
       if (!volumeDataLoaded) {
         console.log('Volume data taking too long, initializing basic countdown...');
-        const { endTime, timeRemaining: initialTime } = calculateTimeToMidnightEST(0);
+        const { endTime, timeRemaining: initialTime } = calculateTimeFromStartDate(0);
         setBaseEndTime(endTime);
         setTimeRemaining(initialTime);
         setIsLoading(false);
@@ -85,12 +87,12 @@ export default function RealLifeActivitiesLanding() {
       const newTimeRemaining = Math.max(0, baseEndTime.getTime() - now.getTime());
       setTimeRemaining(newTimeRemaining);
 
-      // Reset to next day if countdown reaches 0
+      // Reset countdown if it reaches 0 (though this shouldn't happen with the specific date)
       if (newTimeRemaining <= 0) {
-        const { endTime: newEndTime, timeRemaining: newTime } = calculateTimeToMidnightEST();
+        const { endTime: newEndTime, timeRemaining: newTime } = calculateTimeFromStartDate();
         setBaseEndTime(newEndTime);
         setTimeRemaining(newTime);
-        console.log('Countdown reset to next midnight EST');
+        console.log('Countdown reset from start date');
       }
     }, 1000);
 
@@ -165,6 +167,9 @@ export default function RealLifeActivitiesLanding() {
             <h2 className="text-2xl md:text-3xl font-bold mb-4">
               TIME REMAINING UNTIL THE END OF STREAM
             </h2>
+            <p className="text-sm md:text-base text-yellow-300 mb-2">
+              Started: Tuesday, September 16, 2025 at 4:17 PM ET
+            </p>
             {baseEndTime && (
               <p className="text-sm md:text-base text-gray-300 mb-6">
                 Countdown ends at: {baseEndTime.toLocaleString('en-US', {
@@ -176,7 +181,7 @@ export default function RealLifeActivitiesLanding() {
                   hour: '2-digit',
                   minute: '2-digit',
                   second: '2-digit'
-                })} EST
+                })} ET
               </p>
             )}
             <CountdownTimer

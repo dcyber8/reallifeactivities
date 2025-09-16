@@ -13,6 +13,8 @@ export default function VolumeTracker({ onVolumeUpdate, onInitialVolumeLoad }: V
   const [price, setPrice] = useState(0);
   const [marketCap, setMarketCap] = useState(0);
   const [supply, setSupply] = useState(0);
+  const [totalLiquidity, setTotalLiquidity] = useState(0);
+  const [pairCount, setPairCount] = useState(0);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -33,25 +35,51 @@ export default function VolumeTracker({ onVolumeUpdate, onInitialVolumeLoad }: V
           throw new Error("No pairs found for token");
         }
 
-        // Find the best pair (highest liquidity USD)
-        const bestPair = data.pairs.reduce((best: any, current: any) => {
-          const bestLiq = parseFloat(best?.liquidity?.usd || "0");
-          const currentLiq = parseFloat(current?.liquidity?.usd || "0");
-          return currentLiq > bestLiq ? current : best;
+        // Calculate combined volume from ALL pairs/bundles
+        let totalVolume24h = 0;
+        let totalLiquidity = 0;
+        let bestPrice = 0;
+        let bestMarketCap = 0;
+        let bestSupply = 0;
+
+        console.log(`📊 Processing ${data.pairs.length} pair(s)/bundle(s):`);
+
+        data.pairs.forEach((pair: any, index: number) => {
+          const volume24h = parseFloat(pair?.volume?.h24 || "0") || 0;
+          const liquidity = parseFloat(pair?.liquidity?.usd || "0") || 0;
+          const price = parseFloat(pair?.priceUsd || "0") || 0;
+          const marketCap = parseFloat(pair?.marketCap || "0") || 0;
+          const supply = parseFloat(pair?.totalSupply || "0") || 0;
+
+          // Sum volumes and liquidity from all pairs
+          totalVolume24h += volume24h;
+          totalLiquidity += liquidity;
+
+          // Use the highest values for price, market cap, and supply
+          if (price > bestPrice) bestPrice = price;
+          if (marketCap > bestMarketCap) bestMarketCap = marketCap;
+          if (supply > bestSupply) bestSupply = supply;
+
+          console.log(`Bundle ${index + 1}: DEX=${pair?.dexId || 'Unknown'}, Volume=$${volume24h.toLocaleString()}, Liquidity=$${liquidity.toLocaleString()}`);
         });
 
-        const volume24hUsd = parseFloat(bestPair?.volume?.h24 || "0");
-        const priceUsd = parseFloat(bestPair?.priceUsd || "0");
-        const marketCap = parseFloat(bestPair?.marketCap || "0");
-        const supply = parseFloat(bestPair?.totalSupply || "0");
+        console.log(`💰 Total Combined Volume: $${totalVolume24h.toLocaleString()} (from ${data.pairs.length} bundles)`);
 
-        // Calculate time to add based on volume (every $10 = 1 second)
+        const volume24hUsd = totalVolume24h;
+        const priceUsd = bestPrice;
+        const marketCap = bestMarketCap;
+        const supply = bestSupply;
+
+        // Calculate time to add based on COMBINED volume (every $10 = 1 second)
         const timeToAddSeconds = Math.floor(volume24hUsd / 10);
         const timeToAddMs = timeToAddSeconds * 1000; // Convert to milliseconds
+
+        console.log(`⏰ Time calculation: $${volume24hUsd.toLocaleString()} ÷ $10 = ${timeToAddSeconds} seconds (${Math.floor(timeToAddSeconds / 60)}m ${timeToAddSeconds % 60}s)`);
 
         // Only call onInitialVolumeLoad on first successful fetch
         if (!hasInitialized.current) {
           hasInitialized.current = true;
+          console.log(`🎯 Initial volume load: Adding ${timeToAddSeconds} seconds to countdown`);
           onInitialVolumeLoad(timeToAddMs);
           lastTimeAdded.current = timeToAddSeconds;
         } else {
@@ -59,8 +87,11 @@ export default function VolumeTracker({ onVolumeUpdate, onInitialVolumeLoad }: V
           const newTimeToAddSeconds = timeToAddSeconds - lastTimeAdded.current;
           if (newTimeToAddSeconds > 0) {
             const newTimeToAddMs = newTimeToAddSeconds * 1000;
+            console.log(`📈 Volume increased: Adding ${newTimeToAddSeconds} additional seconds to countdown`);
             onVolumeUpdate(newTimeToAddMs);
             lastTimeAdded.current = timeToAddSeconds;
+          } else {
+            console.log(`📊 Volume unchanged or decreased: No additional time added`);
           }
         }
 
@@ -69,6 +100,8 @@ export default function VolumeTracker({ onVolumeUpdate, onInitialVolumeLoad }: V
         setPrice(priceUsd);
         setMarketCap(marketCap);
         setSupply(supply);
+        setTotalLiquidity(totalLiquidity);
+        setPairCount(data.pairs.length);
 
       } catch (error) {
         console.error("Failed to fetch volume data:", error);
@@ -90,7 +123,7 @@ export default function VolumeTracker({ onVolumeUpdate, onInitialVolumeLoad }: V
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      maximumFractionDigits: 5,
     }).format(amount);
   };
 
@@ -117,32 +150,43 @@ export default function VolumeTracker({ onVolumeUpdate, onInitialVolumeLoad }: V
       <div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-center">
           <div className="bg-white p-4 border border-black">
-            <div className="text-sm text-gray-600">24H VOLUME</div>
-            <div className="text-lg font-bold">{formatCurrency(volume24h)}</div>
+            <div className="text-sm text-gray-600">24H VOLUME (COMBINED)</div>
+            <div className="text-lg font-bold text-green-600">{formatCurrency(volume24h)}</div>
+            <div className="text-xs text-gray-500">From {pairCount} bundle{pairCount !== 1 ? 's' : ''}</div>
           </div>
 
           <div className="bg-white p-4 border border-black">
-            <div className="text-sm text-gray-600">CURRENT PRICE</div>
+            <div className="text-sm text-gray-600">TOTAL LIQUIDITY</div>
+            <div className="text-lg font-bold text-blue-600">{formatCurrency(totalLiquidity)}</div>
+            <div className="text-xs text-gray-500">All pairs combined</div>
+          </div>
+
+          <div className="bg-white p-4 border border-black">
+            <div className="text-sm text-gray-600">BEST PRICE</div>
             <div className="text-lg font-bold">{formatCurrency(price)}</div>
-          </div>
-
-          <div className="bg-white p-4 border border-black">
-            <div className="text-sm text-gray-600">MARKET CAP</div>
-            <div className="text-lg font-bold">{formatCurrency(marketCap)}</div>
+            <div className="text-xs text-gray-500">Highest across pairs</div>
           </div>
 
           <div className="bg-white p-4 border border-black">
             <div className="text-sm text-gray-600">TIME BONUS</div>
-            <div className="text-lg font-bold text-blue-600">
+            <div className="text-lg font-bold text-purple-600">
               +{lastTimeAdded.current} sec
             </div>
+            <div className="text-xs text-gray-500">From combined volume</div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-center mt-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center mt-4">
           <div className="bg-white p-4 border border-black">
-            <div className="text-sm text-gray-600">SUPPLY</div>
-            <div className="text-lg font-bold">{formatCurrency(supply)}</div>
+            <div className="text-sm text-gray-600">BEST MARKET CAP</div>
+            <div className="text-lg font-bold text-orange-600">{formatCurrency(marketCap)}</div>
+            <div className="text-xs text-gray-500">Highest across pairs</div>
+          </div>
+
+          <div className="bg-white p-4 border border-black">
+            <div className="text-sm text-gray-600">TOTAL SUPPLY</div>
+            <div className="text-lg font-bold">{supply.toLocaleString()}</div>
+            <div className="text-xs text-gray-500">Token supply</div>
           </div>
 
           <div className="bg-white p-4 border border-black">
@@ -150,6 +194,7 @@ export default function VolumeTracker({ onVolumeUpdate, onInitialVolumeLoad }: V
             <div className="text-lg font-bold text-green-600">
               {hasInitialized.current ? "TRACKING" : "INITIALIZING"}
             </div>
+            <div className="text-xs text-gray-500">Volume monitoring</div>
           </div>
         </div>
       </div>
